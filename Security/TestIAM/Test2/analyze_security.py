@@ -307,6 +307,88 @@ def run_all_rules(rbac_data: dict) -> list[dict]:
     return findings
 
 
+# ── Management Recommendations ─────────────────────────────────────────────
+
+# Actionable recommendation templates per rule (for executive summary)
+_RECOMMENDATION_TEMPLATES = {
+    "RBAC-001": (
+        "{count} resource(s) have overly privileged roles (Owner/Contributor/User Access "
+        "Administrator) assigned directly. Replace with scoped, task-specific roles to "
+        "enforce least privilege."
+    ),
+    "RBAC-002": (
+        "{count} individual user assignment(s) detected. Migrate to security groups for "
+        "easier lifecycle management and audit trails."
+    ),
+    "RBAC-003": (
+        "{count} role-resource type mismatch(es) found. Review and reassign roles that "
+        "are appropriate for the target resource type."
+    ),
+    "RBAC-004": (
+        "{count} resource(s) have excessive high-privilege principals (>3 with "
+        "Owner/Contributor). Consolidate access through groups or reduce privileged users."
+    ),
+    "RBAC-005": (
+        "{count} service principal(s) have broad roles (Owner/Contributor). Service "
+        "principals should use narrowly scoped custom roles for automated workloads."
+    ),
+    "RBAC-006": (
+        "{count} orphaned or unknown principal(s) detected. These identities may have "
+        "been deleted from Entra ID - remove stale assignments."
+    ),
+    "RBAC-007": (
+        "{count} separation of duties violation(s) found. Principals should not have "
+        "both control plane and data plane access on the same resource."
+    ),
+    "RBAC-008": (
+        "{count} assignment(s) on passive infrastructure resources (NICs, private "
+        "endpoints, DNS zones). Consider if these assignments are necessary."
+    ),
+    "RBAC-009": (
+        "{count} inherited broad permission(s) from parent scopes. Review subscription "
+        "and resource group level assignments for overly permissive inheritance."
+    ),
+}
+
+
+def generate_management_recommendations(findings: list[dict]) -> list[dict]:
+    """Generate prioritized management recommendations from findings.
+
+    Returns a list of recommendations sorted by severity (HIGH first) then count.
+    Only includes rules that have at least one finding.
+    """
+    # Count findings per rule
+    rule_counts: dict[str, int] = defaultdict(int)
+    rule_severity: dict[str, str] = {}
+    for f in findings:
+        rule_id = f["ruleId"]
+        rule_counts[rule_id] += 1
+        rule_severity[rule_id] = f["severity"]
+
+    # Build recommendations for rules with findings
+    recommendations = []
+    severity_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+
+    for rule_id, count in rule_counts.items():
+        if count == 0:
+            continue
+        severity = rule_severity[rule_id]
+        template = _RECOMMENDATION_TEMPLATES.get(rule_id, "")
+        if not template:
+            continue
+        recommendations.append({
+            "ruleId": rule_id,
+            "ruleName": SECURITY_RULES[rule_id]["name"],
+            "severity": severity,
+            "count": count,
+            "recommendation": template.format(count=count),
+        })
+
+    # Sort by severity (HIGH first), then by count (descending)
+    recommendations.sort(key=lambda r: (severity_order.get(r["severity"], 99), -r["count"]))
+    return recommendations
+
+
 # ── Findings JSON Output ───────────────────────────────────────────────────
 
 
@@ -403,6 +485,14 @@ tr:nth-child(even) { background: #f9f9f9; }
 .collapsible summary h2 { margin: 0; padding: 0; display: inline; font-size: 1.5em; }
 .collapsible[open] { background: #fff; }
 .no-findings { text-align: center; padding: 40px; font-size: 1.2em; color: #107c10; }
+.exec-recs { background: #fff3e0; border-left: 4px solid #ff6b00; padding: 15px; margin: 20px 0; }
+.exec-recs h2 { margin-top: 0; color: #e65100; }
+.exec-recs ul { margin: 10px 0; padding-left: 0; list-style: none; }
+.exec-recs li { padding: 10px 12px; margin: 8px 0; background: #fff; border-radius: 4px; border: 1px solid #ffe0b2; }
+.exec-recs li.high { border-left: 4px solid #d13438; }
+.exec-recs li.medium { border-left: 4px solid #ff6b00; }
+.exec-recs li.low { border-left: 4px solid #ffc83d; }
+.exec-recs .rule-id { font-weight: bold; color: #555; }
 """
 
 
@@ -458,9 +548,29 @@ def generate_html_report(
     h.append(f'<li class="sev-low">LOW: {sev_counts.get("LOW", 0)}</li>')
     h.append("</ul></div>")
 
+    # -- executive recommendations --
+    recs = generate_management_recommendations(findings)
+    if recs:
+        h.append('<div class="exec-recs" id="exec-recs">')
+        h.append("<h2>Executive Recommendations</h2>")
+        h.append("<p>Prioritized actions based on security findings:</p>")
+        h.append("<ul>")
+        for rec in recs:
+            sev_cls = rec["severity"].lower()
+            h.append(
+                f'<li class="{sev_cls}">'
+                f'{_severity_badge(rec["severity"])} '
+                f'<span class="rule-id">{escape(rec["ruleId"])}:</span> '
+                f'{escape(rec["recommendation"])}'
+                f'</li>'
+            )
+        h.append("</ul></div>")
+
     # -- navigation --
     h.append('<div class="nav-box">')
     h.append("<h2>Quick Navigation</h2><ul>")
+    if recs:
+        h.append('<li>&#x1F3AF; <a href="#exec-recs">Executive Recommendations</a></li>')
     for sev, label, emoji in [("HIGH", "High", "&#x1F534;"), ("MEDIUM", "Medium", "&#x1F7E0;"), ("LOW", "Low", "&#x1F7E1;")]:
         if sev_counts.get(sev, 0):
             h.append(f'<li>{emoji} <a href="#sev-{sev.lower()}">{label} Severity Findings</a> ({sev_counts[sev]})</li>')
@@ -649,6 +759,18 @@ def generate_markdown_report(
     lines.append(f'  - **MEDIUM:** {sev_counts.get("MEDIUM", 0)}')
     lines.append(f'  - **LOW:** {sev_counts.get("LOW", 0)}')
     lines.append("")
+
+    # -- executive recommendations --
+    recs = generate_management_recommendations(findings)
+    if recs:
+        lines.append("## Executive Recommendations")
+        lines.append("")
+        lines.append("Prioritized actions based on security findings:")
+        lines.append("")
+        for rec in recs:
+            lines.append(f'- **[{rec["severity"]}] {rec["ruleId"]}:** {rec["recommendation"]}')
+        lines.append("")
+
     lines.append("---")
     lines.append("")
 
