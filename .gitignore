@@ -209,3 +209,16 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Reports shouhld be ignored
+**/reports/
+reports/
+
+# Output should be ignored
+**/output/
+output/
+
+# Local should be ignored
+**/local/
+local/

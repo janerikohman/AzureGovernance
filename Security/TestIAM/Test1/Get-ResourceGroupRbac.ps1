@@ -11,9 +11,13 @@
 .PARAMETER IncludeInherited
     Include role assignments inherited from resource group and subscription scope.
 
+.PARAMETER ListMembers
+    Optional. For group principals, include group members in the output.
+
 .EXAMPLE
     .\Get-ResourceGroupRbac.ps1 -ResourceGroupName "my-rg"
     .\Get-ResourceGroupRbac.ps1 -ResourceGroupName "my-rg" -IncludeInherited | Out-File report.json
+    .\Get-ResourceGroupRbac.ps1 -ResourceGroupName "my-rg" -ListMembers | Out-File report.json
 #>
 
 [CmdletBinding()]
@@ -25,7 +29,10 @@ param(
     [string]$SubscriptionId,
 
     [Parameter(Mandatory = $false)]
-    [switch]$IncludeInherited
+    [switch]$IncludeInherited,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ListMembers
 )
 
 # Data plane role patterns
@@ -70,6 +77,20 @@ function Test-IsDataPlaneRole {
         if ($RoleName -like $pattern) { return $true }
     }
     return $false
+}
+
+function Get-GroupMembers {
+    param([string]$GroupObjectId)
+    try {
+        $members = Get-AzADGroupMember -GroupObjectId $GroupObjectId -ErrorAction SilentlyContinue
+        if ($members) {
+            return @($members | Select-Object DisplayName, ObjectType, @{Name='Id';Expression={$_.Id}})
+        }
+    }
+    catch {
+        return $null
+    }
+    return $null
 }
 
 # Set subscription context if specified
@@ -122,6 +143,11 @@ foreach ($resource in $resources) {
         }
         
         $targetCollection = if ($isDataPlane) { 'dataPlane' } else { 'controlPlane' }
+
+        if ($ListMembers.IsPresent -and $assignment.ObjectType -eq 'Group') {
+            $members = Get-GroupMembers -GroupObjectId $assignment.ObjectId
+            if ($members) { $assignmentInfo['members'] = $members }
+        }
         
         if (-not $resourceReport[$targetCollection].ContainsKey($roleName)) {
             $resourceReport[$targetCollection][$roleName] = @()
@@ -132,6 +158,22 @@ foreach ($resource in $resources) {
     $reportData += $resourceReport
 }
 
+# Create output directory
+$scriptPath = $PSScriptRoot
+$outputDir = Join-Path -Path $scriptPath -ChildPath "output"
+if (-not (Test-Path -Path $outputDir)) {
+    New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
+}
+
+# Generate output filename
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$filename = "rbac-$ResourceGroupName-$timestamp"
+if ($ListMembers.IsPresent) {
+    $filename += "-withmembers"
+}
+$filename += ".json"
+$outputPath = Join-Path -Path $outputDir -ChildPath $filename
+
 # Output JSON
 $output = @{
     metadata = @{
@@ -141,8 +183,11 @@ $output = @{
         generatedAt       = (Get-Date -Format "o")
         includeInherited  = $IncludeInherited.IsPresent
         resourceCount     = $resources.Count
+        listMembers       = $ListMembers.IsPresent
     }
     resources = $reportData
 }
 
-$output | ConvertTo-Json -Depth 10
+# Save to file
+$output | ConvertTo-Json -Depth 10 | Out-File -FilePath $outputPath -Encoding utf8
+Write-Host "RBAC report saved to: $outputPath" -ForegroundColor Green
