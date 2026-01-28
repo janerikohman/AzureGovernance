@@ -1,0 +1,18 @@
+# Azure RBAC Security Posture Analysis Toolkit
+#
+# No external Python dependencies required.
+# This toolkit uses only Python standard library modules.
+#
+# Prerequisites:
+#   - Python 3.10+ (for type hint syntax: list[str], dict[str, str], str | None)
+#   - Azure CLI (az) installed and authenticated (az login)
+#     Install from: https://aka.ms/installazurecli
+#
+# Setup:
+#   python -m venv .venv
+#   .venv\Scripts\activate   (Windows)
+#   source .venv/bin/activate (Linux/macOS)
+#
+# Usage:
+#   python extract_rbac.py -g <resource-group> --include-inherited
+#   python analyze_security.py output/rbac-<rg>-<timestamp>.json

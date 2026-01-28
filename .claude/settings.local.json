@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python extract_rbac.py:*)",
+      "Bash(python analyze_security.py:*)",
+      "Bash(python -c:*)"
+    ]
+  }
+}
