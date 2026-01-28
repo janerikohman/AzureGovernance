@@ -42,7 +42,7 @@ def run_az_command(args: list[str]) -> dict | list:
     cmd = [_AZ_CMD] + args + ["-o", "json"]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120,
+            cmd, capture_output=True, text=True, timeout=120
         )
     except FileNotFoundError:
         print(
@@ -185,21 +185,21 @@ def main():
         description="Extract RBAC assignments from an Azure resource group using az CLI",
     )
     parser.add_argument(
-        "-g", "--resource-group", required=True, help="Resource group name",
+        "-g", "--resource-group", required=True, help="Resource group name"
     )
     parser.add_argument(
-        "-s", "--subscription", help="Subscription ID (optional)",
+        "-s", "--subscription", help="Subscription ID (optional)"
     )
     parser.add_argument(
         "--include-inherited",
         action="store_true",
-        help="Include inherited assignments from parent scopes",
+        help="Include inherited assignments from parent scopes"
     )
     args = parser.parse_args()
 
     print(f"Extracting RBAC for resource group: {args.resource_group}")
     data = extract_rbac(
-        args.resource_group, args.subscription, args.include_inherited,
+        args.resource_group, args.subscription, args.include_inherited
     )
 
     # Write output
